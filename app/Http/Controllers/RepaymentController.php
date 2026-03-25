@@ -4,6 +4,8 @@ namespace App\Http\Controllers;
 
 use App\Models\Repayment;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
+use App\Models\Loan;
 
 class RepaymentController extends Controller
 {
@@ -28,16 +30,19 @@ class RepaymentController extends Controller
      */
     public function store(Request $request)
 {
-    // 1. Validate request
+         // 1. Validate request
     $validated = $request->validate([
         'loan_id' => 'required|exists:loans,id',
         'amount_paid' => 'required|numeric',
         'payment_date' => 'required|date',
     ]);
 
-    // 2. Extract values
-    $loan = Loan::find($validated['loan_id']);
-    $amount = $validated['amount_paid'];
+    //DB Transaction
+    $result = DB::transaction(function () use($validated){
+
+    //Lock the loan row for update
+        $loan = Loan::lockForUpdate()->find($validated['loan_id']);
+        
 
     // 3. Check if loan is active
     if ($loan->status === 'Completed') {
@@ -45,6 +50,8 @@ class RepaymentController extends Controller
             'message' => 'Loan is already completed'
         ], 400);
     }
+
+    $amount = $validated['amount_paid'];
 
     // 4. Check overpayment
     if ($amount > $loan->remaining_balance) {
@@ -70,11 +77,16 @@ class RepaymentController extends Controller
         'payment_date' => $validated['payment_date']
     ]);
 
-    // 8. Return response
+    return [
+        'loan' => $loan,
+        'repayment' => $repayment
+    ];
+});
+
+ // 8. Return response
     return response()->json([
         'message' => 'Repayment recorded successfully',
-        'repayment' => $repayment,
-        'loan' => $loan
+        'data' => $result
     ], 201);
 }
 
